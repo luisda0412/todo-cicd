@@ -1,0 +1,58 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Descarga el código
+      - name: Checkout codigo
+        uses: actions/checkout@v3
+
+      # 2. Instala Python
+      - name: Instalar Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      # 3. Instala dependencias
+      - name: Instalar dependencias
+        run: pip install pytest boto3
+
+      # 4. Corre los tests
+      - name: Correr tests
+        run: |
+          cd lambda_main
+          pytest test_handler.py -v
+
+      # 5. Instala AWS CLI
+      - name: Instalar AWS CLI
+        run: |
+          pip install awscli
+
+      # 6. Configura credenciales AWS
+      - name: Configurar AWS
+        run: |
+          aws configure set aws_access_key_id test
+          aws configure set aws_secret_access_key test
+          aws configure set default.region us-east-1
+
+      # 7. Empaqueta y hace deploy de la Lambda
+      - name: Deploy Lambda
+        run: |
+          cd lambda_main
+          zip -r ../lambda_main.zip handler.py
+          aws --endpoint-url http://localhost:4566 lambda update-function-code \
+            --function-name pipeline-notifier \
+            --zip-file fileb://../lambda_main.zip
+
+      # 8. Notifica resultado a SQS
+      - name: Notificar resultado
+        run: |
+          aws --endpoint-url http://localhost:4566 sqs send-message \
+            --queue-url http://localhost:4566/000000000000/pipeline-events \
+            --message-body '{"status": "success", "branch": "main", "commit": "${{ github.sha }}"}'
